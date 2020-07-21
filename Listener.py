@@ -1,11 +1,11 @@
-import pyaudio
+import pyaudio  # import necessary libraries for audio recording and storage
 import wave
 from array import array
 import shutil
-import librosa
 import numpy as np
+import librosa
 import soundfile
-import glob
+from sklearn.neural_network import MLPClassifier
 
 
 FORMAT = pyaudio.paInt16
@@ -23,6 +23,12 @@ stream = audio.open(format = FORMAT,channels = CHANNELS,
 
 
 def record():
+    """This function records incoming audio by first running for a set
+    time; if the user speaks above the set volume threshold then append
+    the audio data to an array called frames. If the user has already
+    spoke and volume is below the threshold then end the function call. Returns
+    the sample width and the array of audio data for processing
+    """
     frames = []
     check_state = False
     for _ in range(0,int(RATE / CHUNK * RECORD_SECONDS)):
@@ -33,7 +39,7 @@ def record():
             check_state = True
             print("something said")
             frames.append(data)
-        elif check_state == True and vol < 2500:
+        elif check_state == True and vol < 2000:
             break
         else:
             check_state = False
@@ -45,7 +51,7 @@ def record():
 
 
 def file_writer(FILE_NAME):
-    sample_width,frames = record()
+    sample_width,frames = record()  # placeholder
     wf = wave.open(FILE_NAME,'wb')
     wf.setnchannels(CHANNELS)
     wf.setsampwidth(sample_width)
@@ -55,41 +61,36 @@ def file_writer(FILE_NAME):
     shutil.move(FILE_NAME,"sound_files")
 
 
-def get_sample(n):
+def extract_features(file_name):
+    features = np.array([])
+    with soundfile.SoundFile(file_name) as audio_data:
+        x = audio_data.read(dtype = "float32")
+        sample_rate = audio_data.samplerate
+        stft = np.abs(librosa.stft(x))
+        mfccs = np.mean(librosa.feature.mfcc(y = x,sr = sample_rate,n_mfcc = 40).T,axis = 0)
+        chroma = np.mean(librosa.feature.chroma_stft(S = stft,sr = sample_rate).T,axis = 0)
+        mel = np.mean(librosa.feature.melspectrogram(x,sr = sample_rate).T,axis = 0)
+        features = np.hstack(features,mfccs,chroma,mel)
+
+    return features
+
+
+def get_sample_features(n):
+    X, y = [], []
     for i in range(n):
         FILE_NAME = "recording%d.wav" % i
         file_writer(FILE_NAME)
+        features = extract_features(FILE_NAME)
+        X.append(features)
+        y.append(1)
     stream.stop_stream()
     stream.close()
     audio.terminate()
+    return np.array(X), np.array(y)
 
 
-def extract_features(file_name,mfcc,chroma,mel):
-    with soundfile.SoundFile(file_name) as sound_file:
-        X = sound_file.read(dtype = "float32")
-        sample_rate = sound_file.samplerate
-        if chroma:
-            stft = np.abs(librosa.stft(X))
-        result = np.array([])
-        if mfcc:
-            mfccs = np.mean(librosa.feature.mfcc(y = X,sr = sample_rate,n_mfcc = 40).T,axis = 0)
-            result = np.hstack((result,mfccs))
-        if chroma:
-            chroma = np.mean(librosa.feature.chroma_stft(S = stft,sr = sample_rate).T,axis = 0)
-            result = np.hstack((result,chroma))
-        if mel:
-            mel = np.mean(librosa.feature.melspectrogram(X,sr = sample_rate).T,axis = 0)
-            result = np.hstack((result,mel))
-    return result
-
-
-def load_data():
-    X = []
-    for file in glob.glob('/Users/phoenix/Documents/SummerResearch2020/ListeningScript/sound_files'):
-        feature = extract_features(file, mfcc=True, chroma=True, mel=True)
-        X.append(feature)
-        feature_matrix = np.array(X)
-    return feature_matrix
+def classify_click(model):
+    model = MLPClassifier()
 
 
 
