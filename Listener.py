@@ -1,18 +1,19 @@
 import pyaudio  # import necessary libraries for audio recording and storage
 import wave
 from array import array
-import shutil
 import numpy as np
 import librosa
 import soundfile
-from sklearn.neural_network import MLPClassifier
-
 
 FORMAT = pyaudio.paInt16
-CHANNELS = 2
+CHANNELS = 1
 RATE = 44100
 CHUNK = 1024
 RECORD_SECONDS = 15
+sound = {
+    '00': 'nothing',
+    '01': 'click'
+}
 
 audio = pyaudio.PyAudio()
 
@@ -31,6 +32,7 @@ def record():
     """
     frames = []
     check_state = False
+
     for _ in range(0,int(RATE / CHUNK * RECORD_SECONDS)):
         data = stream.read(CHUNK)
         data_chunk = array('h',data)
@@ -58,39 +60,40 @@ def file_writer(FILE_NAME):
     wf.setframerate(RATE)
     wf.writeframes(b''.join(frames))  # append frames recorded to file
     wf.close()
-    shutil.move(FILE_NAME,"sound_files")
 
 
-def extract_features(file_name):
-    features = np.array([])
+def extract_features(file_name,mfcc,chroma,mel):
     with soundfile.SoundFile(file_name) as audio_data:
         x = audio_data.read(dtype = "float32")
         sample_rate = audio_data.samplerate
-        stft = np.abs(librosa.stft(x))
-        mfccs = np.mean(librosa.feature.mfcc(y = x,sr = sample_rate,n_mfcc = 40).T,axis = 0)
-        chroma = np.mean(librosa.feature.chroma_stft(S = stft,sr = sample_rate).T,axis = 0)
-        mel = np.mean(librosa.feature.melspectrogram(x,sr = sample_rate).T,axis = 0)
-        features = np.hstack(features,mfccs,chroma,mel)
-
+        if chroma:
+            stft = np.abs(librosa.stft(x))
+        features = np.array([])
+        if mfcc:
+            mfccs = np.mean(librosa.feature.mfcc(y = x,sr = sample_rate,n_mfcc = 40).T,axis = 0)
+            features = np.hstack((features,mfccs))
+        if chroma:
+            chroma = np.mean(librosa.feature.chroma_stft(S = stft,sr = sample_rate).T,axis = 0)
+            features = np.hstack((features,chroma))
+        if mel:
+            mel = np.mean(librosa.feature.melspectrogram(x,sr = sample_rate).T,axis = 0)
+            features = np.hstack((features,mel))
     return features
 
 
-def get_sample_features(n):
-    X, y = [], []
-    for i in range(n):
+def get_training_data(samples):
+    X,y = [],[]
+    for i in range(samples):
         FILE_NAME = "recording%d.wav" % i
         file_writer(FILE_NAME)
-        features = extract_features(FILE_NAME)
+        features = extract_features(FILE_NAME,mfcc = True,chroma = True,mel = True)
         X.append(features)
-        y.append(1)
+        y.append(sound['01'])
     stream.stop_stream()
     stream.close()
     audio.terminate()
-    return np.array(X), np.array(y)
-
-
-def classify_click(model):
-    model = MLPClassifier()
+    observations,labels = np.array(X),np.array(y)
+    return observations,labels
 
 
 
