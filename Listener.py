@@ -4,6 +4,7 @@ from array import array
 import numpy as np
 import librosa
 import soundfile
+from pathlib import Path
 
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
@@ -81,32 +82,23 @@ def extract_features(file_name,mfcc,chroma,mel):
     return features
 
 
-def get_training_data(samples):
+def get_training_data(true_samples, false_samples):
     X,y = [],[]
-    for i in range(samples):
-        FILE_NAME = "recording%d.wav" % i
+    for i in range(true_samples):
+        FILE_NAME = "Trecording%d.wav" % i
         file_writer(FILE_NAME)
         features = extract_features(FILE_NAME,mfcc = True,chroma = True,mel = True)
         X.append(features)
         y.append(sound['01'])
+    for i in range(false_samples):
+        FILE_NAME = "Frecording%d.wav" % i
+        file_writer(FILE_NAME)
+        features = extract_features(FILE_NAME,mfcc = True,chroma = True,mel = True)
+        X.append(features)
+        y.append(sound['00'])
     stream.stop_stream()
     stream.close()
     audio.terminate()
     observations,labels = np.array(X),np.array(y)
     return observations,labels
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
