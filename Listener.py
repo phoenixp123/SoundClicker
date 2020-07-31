@@ -4,24 +4,10 @@ from array import array
 import numpy as np
 import librosa
 import soundfile
-from pathlib import Path
+from sklearn.neural_network import MLPClassifier
+import os
 
-FORMAT = pyaudio.paInt16
-CHANNELS = 1
-RATE = 44100
-CHUNK = 1024
-RECORD_SECONDS = 15
-sound = {
-    '00': 'nothing',
-    '01': 'click'
-}
-
-audio = pyaudio.PyAudio()
-
-stream = audio.open(format = FORMAT,channels = CHANNELS,
-                    rate = RATE,
-                    input = True,
-                    frames_per_buffer = CHUNK)
+sound = {'00': 'click_failed','01': 'click'}
 
 
 def record():
@@ -31,18 +17,31 @@ def record():
     spoke and volume is below the threshold then end the function call. Returns
     the sample width and the array of audio data for processing
     """
+    FORMAT = pyaudio.paInt16
+    CHANNELS = 1
+    RATE = 44100
+    CHUNK = 1024
+    RECORD_SECONDS = 15
+
+    audio = pyaudio.PyAudio()
+
+    stream = audio.open(format = FORMAT,channels = CHANNELS,
+                        rate = RATE,
+                        input = True,
+                        frames_per_buffer = CHUNK)
+
     frames = []
     check_state = False
 
     for _ in range(0,int(RATE / CHUNK * RECORD_SECONDS)):
-        data = stream.read(CHUNK)
+        data = stream.read(CHUNK,exception_on_overflow = False)
         data_chunk = array('h',data)
         vol = max(data_chunk)
-        if vol >= 2200:
+        if vol >= 4000:
             check_state = True
-            print("something said")
             frames.append(data)
-        elif check_state == True and vol < 2000:
+            print("something said")
+        elif check_state == True and vol < 4000:
             break
         else:
             check_state = False
@@ -50,11 +49,14 @@ def record():
         print("\n")
 
     sample_width = audio.get_sample_size(FORMAT)
-    return sample_width,frames
+    return sample_width,frames,CHANNELS,RATE
 
 
 def file_writer(FILE_NAME):
-    sample_width,frames = record()  # placeholder
+    """retrieves the sample width, array of audio data, and record settings
+    as they are returned from record(). The function uses that information to write
+    a wav file with that data"""
+    sample_width,frames,CHANNELS,RATE = record()
     wf = wave.open(FILE_NAME,'wb')
     wf.setnchannels(CHANNELS)
     wf.setsampwidth(sample_width)
@@ -64,11 +66,14 @@ def file_writer(FILE_NAME):
 
 
 def extract_features(file_name,mfcc,chroma,mel):
+    """Extracts the features for ML classification from a given audio file.
+    It takes the presence of each feature as arguments such that the model
+    can be tuned for feature relevance later"""
     with soundfile.SoundFile(file_name) as audio_data:
         x = audio_data.read(dtype = "float32")
         sample_rate = audio_data.samplerate
         if chroma:
-            stft = np.abs(librosa.stft(x))
+            stft = np.absolute(librosa.stft(x))
         features = np.array([])
         if mfcc:
             mfccs = np.mean(librosa.feature.mfcc(y = x,sr = sample_rate,n_mfcc = 40).T,axis = 0)
@@ -82,23 +87,59 @@ def extract_features(file_name,mfcc,chroma,mel):
     return features
 
 
-def get_training_data(true_samples, false_samples):
-    X,y = [],[]
-    for i in range(true_samples):
-        FILE_NAME = "Trecording%d.wav" % i
-        file_writer(FILE_NAME)
-        features = extract_features(FILE_NAME,mfcc = True,chroma = True,mel = True)
-        X.append(features)
-        y.append(sound['01'])
-    for i in range(false_samples):
-        FILE_NAME = "Frecording%d.wav" % i
-        file_writer(FILE_NAME)
-        features = extract_features(FILE_NAME,mfcc = True,chroma = True,mel = True)
-        X.append(features)
-        y.append(sound['00'])
+def build_dataset(i):
+    """creates two numPy arrays, containing the features and label of an audio
+    recording, respectively."""
+    y = np.array([])
+    FILE_NAME = "recording%d.wav" % i
+    file_writer(FILE_NAME)
+    X = extract_features(FILE_NAME,mfcc = True,chroma = True,mel = True)
+    y = np.append(y,sound['01'])
+    os.remove(FILE_NAME)
+    return X,y
+
+
+def get_training_data(samples):
+    """This function returns the complete arrays of observations and
+    labels, respectively."""
+    observations = np.empty((0,180))
+    labels = np.empty((0,1))
+    for i in range(samples):
+        X,y = build_dataset(i)
+        examples,target = np.array([X]),np.array([y])
+        observations = np.append(observations,examples,axis = 0)
+        labels = np.append(labels,target,axis = 0)
+    observations.reshape(1,-1),labels.reshape(1,-1)
+    return observations,labels
+
+
+def get_sample(activation):
+    X_test = np.empty((0,180))
+    filename = "test%d.wav" % activation
+    file_writer(filename)
+    new_sample = extract_features(filename,mfcc = True,chroma = True,mel = True)
+    inference = np.array([new_sample])
+    X_test = np.append(X_test, inference, axis = 0)
+    os.remove(filename)
+    return X_test
+
+
+def deploy_model(test_size):
+    clf = MLPClassifier(random_state = 1, batch_size = 100)
+    X_train,y_train = get_training_data(test_size)
+    clf.fit(X_train,y_train.ravel())
+    activations = 0
+    while True:
+        X_predict = get_sample(activations)
+        if clf.predict(X_predict) == sound['01']:
+            print('Click!')
+            # generate_click
+        else:
+            print('not click:(')
+        print("\n")
+        activations += 1
+
     stream.stop_stream()
     stream.close()
     audio.terminate()
-    observations,labels = np.array(X),np.array(y)
-    return observations,labels
 
