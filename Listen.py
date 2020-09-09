@@ -81,7 +81,7 @@ def extract_features(file_name,mfcc):  # ,mel):
         features = np.array([])
         if mfcc:
             mfccs = np.mean(librosa.feature.mfcc(y = x_normalized,  # extract mel frequency cepstral coefficients
-                                                 sr = sample_rate,n_mfcc = 12).T,axis = 0)
+                                                 sr = sample_rate,n_mfcc = 4).T,axis = 0)
             mfccs_norm = librosa.util.normalize(mfccs)
             features = np.hstack((features,mfccs_norm))  # append to NumPy array of features
         # if mel:
@@ -104,7 +104,7 @@ def build_dataset(testing):
 
 def get_training_data(samples,state):
     """returns complete arrays of n samples"""
-    observations = np.empty((0,12))
+    observations = np.empty((0,4))
     for i in range(samples):
         X_samples = build_dataset(state)  # record and extract features
         examples = np.array([X_samples])
@@ -116,7 +116,7 @@ def get_training_data(samples,state):
 def get_sample():
     """This function is very similar, however instead of collecting a set pool of
     samples based on the argument provided, it collects a single audio signal"""
-    X_test = np.empty((0,12))
+    X_test = np.empty((0,4))
     filename = "test.wav"
     file_writer(filename,deployed = True)
     new_sample = extract_features(filename,mfcc = True)  # ,mel = True)
@@ -129,7 +129,7 @@ def get_sample():
 def generate_data(test_size):
     """Creates a synthetic dataset with about a 20%
     difference from sample to sample generated randomly"""
-    synthetic_data = np.empty((0,12))
+    synthetic_data = np.empty((0,4))
     X_train = get_training_data(test_size,state = False)
     synthetic_data = np.append(synthetic_data,X_train,axis = 0)
     for i in range(800):
