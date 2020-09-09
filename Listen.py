@@ -5,10 +5,11 @@ import numpy as np
 import librosa
 import soundfile
 from sklearn.svm import OneClassSVM
+# from sklearn.neighbors import LocalOutlierFactor
+# from sklearn.covariance import EllipticEnvelope
 import os
 from pynput.mouse import Button,Controller
 from random import uniform
-from tkinter import *
 
 
 def record(deployed):
@@ -32,16 +33,16 @@ def record(deployed):
                         frames_per_buffer = CHUNK)
     frames = []
     check_state = False
-    for _ in range(0,int(RATE / CHUNK * RECORD_SECONDS)): # begin recording process
+    for _ in range(0,int(RATE / CHUNK * RECORD_SECONDS)):  # begin recording process
         data = stream.read(CHUNK,exception_on_overflow = False)
         data_chunk = array('h',data)
         vol = max(data_chunk)
-        if vol >= 3500:
+        if vol >= 3200:
             check_state = True
             frames.append(data)
             if not deployed:
                 print("something said")
-        elif check_state == True and vol < 3500:
+        elif check_state == True and vol < 2500:
             break
         else:
             check_state = False
@@ -69,23 +70,25 @@ def file_writer(FILE_NAME,deployed):
     wf.close()
 
 
-def extract_features(file_name, mfcc, mel):
+def extract_features(file_name,mfcc):  # ,mel):
     """Extracts the features for ML classification from a given audio file.
     It takes the presence of each feature as arguments such that the model
     can be tuned for feature relevance later"""
     with soundfile.SoundFile(file_name) as audio_data:
-        x = audio_data.read(dtype = "float32")  # read the file
+        x = audio_data.read(dtype = "float64")  # read the file
         sample_rate = audio_data.samplerate
         x_normalized = librosa.util.normalize(x)  # normalize the clip's volume
         features = np.array([])
         if mfcc:
             mfccs = np.mean(librosa.feature.mfcc(y = x_normalized,  # extract mel frequency cepstral coefficients
-                                                 sr = sample_rate,n_mfcc = 40).T,axis = 0)
-            features = np.hstack((features,mfccs))  # append to NumPy array of features
-        if mel:
-            mel = np.mean(librosa.feature.melspectrogram(x_normalized,  # extract mel spectrogram
-                                                         sr = sample_rate).T,axis = 0)
-            features = np.hstack((features,mel)) # append to NumPy array of features
+                                                 sr = sample_rate,n_mfcc = 12).T,axis = 0)
+            mfccs_norm = librosa.util.normalize(mfccs)
+            features = np.hstack((features,mfccs_norm))  # append to NumPy array of features
+        # if mel:
+        # mel = np.mean(librosa.feature.melspectrogram(y = x_normalized,  # extract mel spectrogram
+        # sr = sample_rate).T,axis = 0)
+        # mel_norm = librosa.util.normalize(mel)
+        # features = np.hstack((features,mel_norm))  # append to NumPy array of features
     return features
 
 
@@ -93,17 +96,17 @@ def build_dataset(testing):
     """creates a numPy array, containing the features of an audio
     recording"""
     FILE_NAME = "recording.wav"
-    file_writer(FILE_NAME,testing) # record a sample
-    X = extract_features(FILE_NAME,mfcc = True, mel = True)  # extract the sample's features
+    file_writer(FILE_NAME,testing)  # record a sample
+    X = extract_features(FILE_NAME,mfcc = True)  # ,mel = False)  # extract the sample's features
     os.remove(FILE_NAME)
     return X
 
 
 def get_training_data(samples,state):
     """returns complete arrays of n samples"""
-    observations = np.empty((0,168))
+    observations = np.empty((0,12))
     for i in range(samples):
-        X_samples = build_dataset(state) # record and extract features
+        X_samples = build_dataset(state)  # record and extract features
         examples = np.array([X_samples])
         observations = np.append(observations,examples,axis = 0)  # append to larger 2D array of features
     observations.reshape(1,-1)
@@ -113,10 +116,10 @@ def get_training_data(samples,state):
 def get_sample():
     """This function is very similar, however instead of collecting a set pool of
     samples based on the argument provided, it collects a single audio signal"""
-    X_test = np.empty((0,168))
+    X_test = np.empty((0,12))
     filename = "test.wav"
     file_writer(filename,deployed = True)
-    new_sample = extract_features(filename,mfcc = True,mel = True)
+    new_sample = extract_features(filename,mfcc = True)  # ,mel = True)
     inference = np.array([new_sample])
     X_test = np.append(X_test,inference,axis = 0)
     os.remove(filename)
@@ -126,24 +129,13 @@ def get_sample():
 def generate_data(test_size):
     """Creates a synthetic dataset with about a 20%
     difference from sample to sample generated randomly"""
-    synthetic_data = np.empty((0,168))
-    X_train = get_training_data(test_size, state = False)
+    synthetic_data = np.empty((0,12))
+    X_train = get_training_data(test_size,state = False)
     synthetic_data = np.append(synthetic_data,X_train,axis = 0)
-    for i in range(300):
-        X_random = X_train * uniform(0.9,1.1)  # randomly alter each sample ~20% from the initial sample
-        synthetic_data = np.append(synthetic_data, X_random, axis = 0)
+    for i in range(800):
+        X_random = X_train * uniform(0.8,1.2)  # randomly alter each sample ~20% from the initial sample
+        synthetic_data = np.append(synthetic_data,X_random,axis = 0)
     return synthetic_data
-
-
-def create_circle(x,y,r,canvasName):  # center coordinates, radius
-    root = Tk()
-    myCanvas = Canvas(root)
-    myCanvas.pack()
-    x0 = x - r
-    y0 = y - r
-    x1 = x + r
-    y1 = y + r
-    return canvasName.create_oval(x0,y0,x1,y1)
 
 
 def deploy_model(test_size):
@@ -152,12 +144,7 @@ def deploy_model(test_size):
     function calls get_sample() and classifies that sound either as a click or not.
     If a click is successful, generate a left click event"""
     mouse = Controller()
-    # root = Tk()
-    # myCanvas = Canvas(root)
-    # myCanvas.pack()
-    # create_circle(100,100,20,myCanvas)
-    # root.mainloop()
-    clf = OneClassSVM(nu = .05, kernel = 'rbf')
+    clf = OneClassSVM(nu = .0001,kernel = 'rbf',gamma = 'auto',max_iter = test_size ** 2)
     X = generate_data(test_size)
     clf.fit(X)
     while True:
@@ -165,10 +152,10 @@ def deploy_model(test_size):
         if clf.predict(X_predict) == 1:
             print('Click!')
             mouse.click(Button.left,1)
-            # fill circle in green
+            # new_trainingX = np.append(X, X_predict,axis = 0)
+            # clf.fit(new_trainingX)
         else:
             print("failed")
-            # fill circle in red
         print("\n")
 
 
