@@ -5,8 +5,6 @@ import numpy as np
 import librosa
 import soundfile
 from sklearn.svm import OneClassSVM
-# from sklearn.neighbors import LocalOutlierFactor
-# from sklearn.covariance import EllipticEnvelope
 import os
 from pynput.mouse import Button,Controller
 from random import uniform
@@ -159,5 +157,6 @@ def deploy_model(test_size):
         print("\n")
 
 
-deploy_model(5)
+if __name__ == "__main__":
+    deploy_model(5)
 
